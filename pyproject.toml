@@ -1,0 +1,48 @@
+[tool.poetry]
+name = "neuroai-backend"  # Changed from "Frontend" since this is a backend API
+version = "0.1.0"
+description = "FastAPI backend for NeuroAI MRI processing"
+authors = [
+    "Vicente Agüero <vicenteaguero>",
+]
+readme = "README.md"
+packages = [
+    { include = "app", from = "." }
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.109.0"
+nibabel = "^5.1.0"
+numpy = "^1.24.0"
+pillow = "^10.0.0"
+uvicorn = "^0.27.0"  # Required for running the ASGI server
+python-multipart = "^0.0.6"  # Required for file uploads
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.5"
+ruff = "^0.11.2"
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "I", "B", "C", "N", "D", "S", "UP"]
+ignore = []
+exclude = [
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "build",
+    "dist",
+    "venv"
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["S101"]  # Ignoring potential security issues in test files
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

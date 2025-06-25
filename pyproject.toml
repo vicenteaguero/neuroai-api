@@ -19,7 +19,8 @@ pillow = "^10.0.0"
 uvicorn = "^0.27.0"  # Required for running the ASGI server
 python-multipart = "^0.0.6"  # Required for file uploads
 python-jose = {extras = ["cryptography"], version = "^3.5.0"}
-passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+passlib = "^1.7.4"
+bcrypt = "^4.0.1" 
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"

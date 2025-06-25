@@ -1,86 +1,75 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
-import numpy as np
-import nibabel as nib
-import io
-import os
-import tempfile
-from PIL import Image
-import base64
 
 
+from app.auth import create_user, authenticate_user, create_access_token,users_db,SECRET_KEY,ALGORITHM
+from app.mri import save_user_file, process_and_save_modalities
+from jose import JWTError, jwt
+from pydantic import BaseModel
 
+app  = FastAPI()
 
-
-app = FastAPI(title="NeuroAI Backend")
-
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    return {"message": "Hello World"}
+class SignupModel(BaseModel):
+    username:str
+    surname:str
+    password:str
 
-def extract_modalities(file_path:str,slice_id:int = 80):
-    img = nib.load(file_path).get_fdata()
-    if img.ndim != 4 or img.shape[-1] != 4:
-        raise ValueError("Expected image shape: (H, W, Slices, 4 modalities)")
-    t1 = img[:, :, slice_id, 0]
-    t1_gd = img[:, :, slice_id, 1]
-    t2 = img[:, :, slice_id, 2]
-    t2_flair = img[:, :, slice_id, 3]
+@app.post("/signup")
+def signup(user:SignupModel):
+    if user.username in users_db:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    create_user(user.username,user.password,user.surname)
+    return {"message":"User created successfully"}
 
-    return {
-        "t1": t1,
-        "t1_gd": t1_gd,
-        "t2": t2,
-        "t2_flair": t2_flair,
-        "shape": img.shape
-    
-    }
-
-def array_to_base64(array:np.ndarray) -> str:
-    arr = (255 * (array - np.min(array)) / (np.max(array) - np.min(array))).astype(np.uint8)
-    image = Image.fromarray(arr)
-    buffered = io.BytesIO()
-    image.save(buffered,format = "PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    return img_str
+@app.post("/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username,form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    access_token = create_access_token(data={"sub":user["username"]})
+    return {"access_token":access_token,"token_type":"bearer"}
 
 
-    
-
-
-@app.post("/upload-mri/")
-async def upload_mri(file: UploadFile = File(...)):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".nii.gz") as tmp:
-        contents = await file.read()
-        tmp.write(contents)
-        tmp_path = tmp.name
-        
+def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
-        data = extract_modalities(tmp_path)
-        t1 = data["t1"]
-        base64_t1_img = array_to_base64(t1)
-        base64_t1_gd_img = array_to_base64(data["t1_gd"])
-        base64_t2_img = array_to_base64(data["t2"])
-        base64_t2_flair_img = array_to_base64(data["t2_flair"])
-        return JSONResponse({
-            "message": "MRI modalities extracted successfully",
-            "image_t1": base64_t1_img,
-            "image_gd": base64_t1_gd_img,
-            "image_t2": base64_t2_img,
-            "image_t2_flair": base64_t2_flair_img,
-            "shape": data["shape"]
-        })
+        payload = jwt.decode(token,SECRET_KEY,algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None or username not in users_db:
+            raise HTTPException(status_code=401, detail="Invalid user")
+        return users_db[username]
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    
+@app.post('/upload-mri')
+def upload_mri(file:UploadFile = File(...),user:dict = Depends(get_current_user)):
+    file_path, folder = save_user_file(user["username"],user["surname"],file)
+    try:
+        images  = process_and_save_modalities(file_path,folder)
+        return JSONResponse(content={'message':"Success",**images})
     except Exception as e:
-        return JSONResponse(status_code=400, content={"error": str(e)})
-    finally:
-        os.remove(tmp_path)
-
+        return JSONResponse(status_code = 404, content={"error":str(e)})
+    
+            
+@app.post("/token")
+def login_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    access_token = create_access_token(data={"sub": user["username"]})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }
+            
